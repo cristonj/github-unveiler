@@ -175,9 +175,14 @@
 // Function to update the element directly
 function updateElementDirectly(element, username, displayName) {
   let changed = false;
-  if (element.tagName === 'H3' && element.classList.contains('slicer-items-module__title--EMqA1')) {
-    // updateTextNodes returns true if it made a change
-    changed = updateTextNodes(element, username, displayName);
+  
+  // For h3 elements that contain usernames (found via avatar association)
+  if (element.tagName === 'H3' && element.textContent.trim() === username) {
+    // Only replace if the text exactly matches the username (no partial replacements)
+    if (element.textContent.trim() === username) {
+      element.textContent = displayName;
+      changed = true;
+    }
   } else if (element.tagName === 'IMG' && element.dataset.testid === 'github-avatar') {
     if (element.alt === displayName) return false; // Already updated
     element.alt = displayName;
@@ -190,61 +195,156 @@ function updateElementDirectly(element, username, displayName) {
   return changed;
 }
 
-// Function to process project elements
+// Function to find username text associated with an avatar
+function findUsernameFromAvatar(avatarImg) {
+  // Start from the avatar and traverse up to find the containing item
+  let container = avatarImg.closest('li, div[class*="item"], div[class*="row"], button');
+  if (!container) return null;
+  
+  // Look for h3, span, or div elements that might contain the username
+  // Prioritize h3 tags as they commonly contain the username in project views
+  const possibleUsernameElements = container.querySelectorAll('h3, span[class*="title"], div[class*="title"], span[class*="name"], div[class*="name"]');
+  
+  for (const elem of possibleUsernameElements) {
+    const text = elem.textContent.trim();
+    // Basic validation: usernames are typically alphanumeric with hyphens/underscores
+    // and don't contain spaces (unless it's already a display name)
+    if (text && !text.includes(' ') && /^[a-zA-Z0-9\-_]+$/.test(text)) {
+      return { element: elem, username: text };
+    }
+  }
+  
+  // Fallback: use the alt text of the image itself if it looks like a username
+  const altText = avatarImg.alt.trim();
+  if (altText && altText !== "" && !altText.includes(' ')) {
+    return { element: null, username: altText };
+  }
+  
+  return null;
+}
+
+// Function to process project elements using avatar-based detection
 function processProjectElements(root) {
   if (!(root instanceof Element)) return; // Ensure root is an Element
 
-  const h3Selector = 'h3.slicer-items-module__title--EMqA1';
-  const imgSelector = 'img[data-testid="github-avatar"][alt]';
-  const spanSelector = 'span[aria-label]';
+  // Find all avatar images - this is a stable selector across GitHub versions
+  const avatarSelector = 'img[data-testid="github-avatar"], img[data-component="Avatar"]';
+  
+  let avatarsToProcess = [];
 
-  let elementsToProcess = [];
-
-  // Check if root itself matches any of the selectors
-  if (root.matches(h3Selector) || root.matches(imgSelector) || root.matches(spanSelector)) {
-    elementsToProcess.push(root);
+  // Check if root itself is an avatar
+  if (root.matches(avatarSelector)) {
+    avatarsToProcess.push(root);
   }
 
-  // Add descendants
-  elementsToProcess.push(...Array.from(root.querySelectorAll(`${h3Selector}, ${imgSelector}, ${spanSelector}`)));
+  // Add descendant avatars
+  avatarsToProcess.push(...Array.from(root.querySelectorAll(avatarSelector)));
 
-  // Deduplication is not strictly necessary due to PROCESSED_MARKER, but can be done with a Set if preferred for cleanliness.
-  // elementsToProcess = Array.from(new Set(elementsToProcess));
-
-  elementsToProcess.forEach(element => {
-    if (element.hasAttribute(PROCESSED_MARKER)) return;
-    let username;
-    if (element.matches(h3Selector)) {
-      username = element.textContent.trim();
-    } else if (element.matches(imgSelector)) {
-      username = element.alt.trim();
-      // Remove "@" prefix if present in alt attribute
-      if (username.startsWith('@')) {
-        username = username.substring(1);
-      }
-    } else if (element.matches(spanSelector)) {
-      username = element.getAttribute('aria-label').trim();
-    }
-
-    // Ignore invalid usernames
-    if (!username || username === "No Assignees" || username === "") {
+  avatarsToProcess.forEach(avatarImg => {
+    // Skip if already processed
+    if (avatarImg.hasAttribute(PROCESSED_MARKER)) return;
+    
+    // Skip "No Assignees" or bot avatars
+    const altText = avatarImg.alt || "";
+    if (altText === "No Assignees" || altText === "" || altText.includes('[bot]')) {
       return;
     }
-
+    
+    // Find the username element associated with this avatar
+    const usernameInfo = findUsernameFromAvatar(avatarImg);
+    if (!usernameInfo || !usernameInfo.username) return;
+    
+    const username = usernameInfo.username;
+    
+    // Process the avatar's alt text
     if (displayNames[username]) {
-      const updated = updateElementDirectly(element, username, displayNames[username]);
-      if (updated) {
-        element.setAttribute(PROCESSED_MARKER, 'true');
+      avatarImg.alt = displayNames[username];
+      avatarImg.setAttribute(PROCESSED_MARKER, 'true');
+      
+      // Also update the associated text element if found
+      if (usernameInfo.element && !usernameInfo.element.hasAttribute(PROCESSED_MARKER)) {
+        usernameInfo.element.textContent = displayNames[username];
+        usernameInfo.element.setAttribute(PROCESSED_MARKER, 'true');
       }
     } else {
-      registerElement(username, () => {
-        const updated = updateElementDirectly(element, username, displayNames[username]);
-        if (updated) {
-          element.setAttribute(PROCESSED_MARKER, 'true');
+      // Register callbacks for when the display name is fetched
+      registerElement(username, (displayName) => {
+        avatarImg.alt = displayName;
+        avatarImg.setAttribute(PROCESSED_MARKER, 'true');
+        
+        // Update the associated text element
+        if (usernameInfo.element && !usernameInfo.element.hasAttribute(PROCESSED_MARKER)) {
+          usernameInfo.element.textContent = displayName;
+          usernameInfo.element.setAttribute(PROCESSED_MARKER, 'true');
         }
       });
       fetchDisplayName(username);
     }
+  });
+  
+  // Also process any standalone username elements that might not have avatars
+  // This handles edge cases where usernames appear without avatars
+  processStandaloneUsernames(root);
+}
+
+// Function to process usernames that appear without avatars (edge cases)
+function processStandaloneUsernames(root) {
+  if (!(root instanceof Element)) return;
+  
+  // Look for elements that commonly contain usernames in project views
+  // Use more generic selectors that work across GitHub versions
+  const selectors = [
+    'a[href^="/"][href$=""]:not([href*="/"])', // Direct user profile links
+    'span[aria-label]:not([' + PROCESSED_MARKER + '])', // Spans with aria-labels that might be usernames
+  ];
+  
+  selectors.forEach(selector => {
+    let elements = [];
+    if (root.matches(selector)) {
+      elements.push(root);
+    }
+    elements.push(...Array.from(root.querySelectorAll(selector)));
+    
+    elements.forEach(element => {
+      if (element.hasAttribute(PROCESSED_MARKER)) return;
+      
+      let username = null;
+      
+      // Extract username from href if it's a link
+      if (element.tagName === 'A') {
+        const href = element.getAttribute('href');
+        const match = href.match(/^\/([a-zA-Z0-9\-_]+)$/);
+        if (match) {
+          username = match[1];
+        }
+      } else if (element.hasAttribute('aria-label')) {
+        const label = element.getAttribute('aria-label').trim();
+        if (label && /^[a-zA-Z0-9\-_]+$/.test(label)) {
+          username = label;
+        }
+      }
+      
+      if (!username || username === "No Assignees") return;
+      
+      if (displayNames[username]) {
+        if (element.tagName === 'A') {
+          updateTextNodes(element, username, displayNames[username]);
+        } else if (element.hasAttribute('aria-label')) {
+          element.setAttribute('aria-label', displayNames[username]);
+        }
+        element.setAttribute(PROCESSED_MARKER, 'true');
+      } else {
+        registerElement(username, (displayName) => {
+          if (element.tagName === 'A') {
+            updateTextNodes(element, username, displayName);
+          } else if (element.hasAttribute('aria-label')) {
+            element.setAttribute('aria-label', displayName);
+          }
+          element.setAttribute(PROCESSED_MARKER, 'true');
+        });
+        fetchDisplayName(username);
+      }
+    });
   });
 }
 

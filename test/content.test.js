@@ -346,65 +346,119 @@ describe("content.js", () => {
   });
 
   describe("GitHub Projects Elements", () => {
-    test("should update username in h3.slicer-items-module__title--EMqA1", async () => {
+    test("should update username based on avatar image", async () => {
+      // Create a container that simulates a project item
+      const container = document.createElement("li");
+      
+      // Add an avatar image
+      const img = document.createElement("img");
+      img.setAttribute("data-testid", "github-avatar");
+      img.setAttribute("alt", "projectUser1");
+      container.appendChild(img);
+      
+      // Add an h3 with the username
       const h3 = document.createElement("h3");
-      h3.className = "slicer-items-module__title--EMqA1";
       h3.textContent = "projectUser1";
-      document.body.appendChild(h3);
+      container.appendChild(h3);
+      
+      document.body.appendChild(container);
 
       require("../content.js");
       await flushPromises();
 
+      expect(img.getAttribute("alt")).toBe("Project User One");
       expect(h3.textContent).toBe("Project User One");
+      expect(img.getAttribute('data-ghu-processed')).toBe('true');
       expect(h3.getAttribute('data-ghu-processed')).toBe('true');
     });
 
-    test("should update username in img[data-testid='github-avatar'][alt]", async () => {
+    test("should update avatar alt text and find associated username element", async () => {
+      // Create a more realistic structure with avatar in a container
+      const button = document.createElement("button");
+      
       const img = document.createElement("img");
       img.setAttribute("data-testid", "github-avatar");
       img.setAttribute("alt", "projectUser2");
-      document.body.appendChild(img);
+      button.appendChild(img);
+      
+      // Add a span that contains the username
+      const span = document.createElement("span");
+      span.className = "some-title-class";
+      span.textContent = "projectUser2";
+      button.appendChild(span);
+      
+      document.body.appendChild(button);
 
       require("../content.js");
       await flushPromises();
 
       expect(img.getAttribute("alt")).toBe("Project User Two");
+      expect(span.textContent).toBe("Project User Two");
       expect(img.getAttribute('data-ghu-processed')).toBe('true');
     });
 
-    test("should update username in span[aria-label]", async () => {
-      const span = document.createElement("span");
-      span.setAttribute("aria-label", "projectUser3");
-      document.body.appendChild(span);
+    test("should handle avatars with data-component='Avatar' attribute", async () => {
+      // Test the alternative avatar selector
+      const div = document.createElement("div");
+      div.className = "item-container";
+      
+      const img = document.createElement("img");
+      img.setAttribute("data-component", "Avatar");
+      img.setAttribute("alt", "projectUser3");
+      div.appendChild(img);
+      
+      const h3 = document.createElement("h3");
+      h3.textContent = "projectUser3";
+      div.appendChild(h3);
+      
+      document.body.appendChild(div);
 
       require("../content.js");
       await flushPromises();
 
-      expect(span.getAttribute("aria-label")).toBe("Project User Three");
-      expect(span.getAttribute('data-ghu-processed')).toBe('true');
+      expect(img.getAttribute("alt")).toBe("Project User Three");
+      expect(h3.textContent).toBe("Project User Three");
+      expect(img.getAttribute('data-ghu-processed')).toBe('true');
     });
 
-    test("should update dynamically added project H3 element (MutationObserver)", async () => {
+    test("should update dynamically added project elements with avatars (MutationObserver)", async () => {
       require("../content.js"); // Load content.js first to set up observer
 
+      const container = document.createElement("div");
+      container.className = "project-item";
+      
+      const img = document.createElement("img");
+      img.setAttribute("data-testid", "github-avatar");
+      img.setAttribute("alt", "projectUser1");
+      container.appendChild(img);
+      
       const h3 = document.createElement("h3");
-      h3.className = "slicer-items-module__title--EMqA1";
       h3.textContent = "projectUser1";
-      document.body.appendChild(h3);
+      container.appendChild(h3);
+      
+      document.body.appendChild(container);
 
       await flushPromises();
       // Additional small delay for MutationObserver, similar to existing test
       await new Promise(r => setTimeout(r, 50));
 
+      expect(img.getAttribute("alt")).toBe("Project User One");
       expect(h3.textContent).toBe("Project User One");
-      expect(h3.getAttribute('data-ghu-processed')).toBe('true');
+      expect(img.getAttribute('data-ghu-processed')).toBe('true');
     });
 
     test("should not process 'No Assignees' and not call fetch", async () => {
+      const img = document.createElement("img");
+      img.setAttribute("data-testid", "github-avatar");
+      img.setAttribute("alt", "No Assignees");
+      
       const h3 = document.createElement("h3");
-      h3.className = "slicer-items-module__title--EMqA1";
       h3.textContent = "No Assignees";
-      document.body.appendChild(h3);
+      
+      const container = document.createElement("div");
+      container.appendChild(img);
+      container.appendChild(h3);
+      document.body.appendChild(container);
 
       // Spy on fetch specifically for this test, though it shouldn't be called for "No Assignees"
       const fetchSpy = global.fetch;
@@ -412,8 +466,9 @@ describe("content.js", () => {
       require("../content.js");
       await flushPromises();
 
+      expect(img.getAttribute("alt")).toBe("No Assignees");
       expect(h3.textContent).toBe("No Assignees");
-      expect(h3.hasAttribute('data-ghu-processed')).toBe(false);
+      expect(img.hasAttribute('data-ghu-processed')).toBe(false);
 
       // Check that fetch was not called for "No Assignees"
       // The easiest way is to ensure no call to fetch had '/No%20Assignees' (URL encoded space)
@@ -442,11 +497,19 @@ describe("content.js", () => {
 
   describe("Idempotency and Marker Tests", () => {
     test("data-ghu-processed attribute should prevent re-processing", async () => {
+      const img = document.createElement("img");
+      img.setAttribute("data-testid", "github-avatar");
+      img.setAttribute("alt", "projectUser1");
+      img.setAttribute("data-ghu-processed", "true"); // Mark as already processed
+      
       const h3 = document.createElement("h3");
-      h3.className = "slicer-items-module__title--EMqA1";
       h3.textContent = "projectUser1"; // This would normally be processed
       h3.setAttribute("data-ghu-processed", "true"); // Mark as already processed
-      document.body.appendChild(h3);
+      
+      const container = document.createElement("div");
+      container.appendChild(img);
+      container.appendChild(h3);
+      document.body.appendChild(container);
 
       const fetchSpy = global.fetch;
       const sendMessageSpy = global.chrome.runtime.sendMessage;
@@ -455,6 +518,7 @@ describe("content.js", () => {
       await flushPromises();
 
       // Content should remain unchanged because it was marked as processed
+      expect(img.getAttribute("alt")).toBe("projectUser1");
       expect(h3.textContent).toBe("projectUser1");
 
       // Verify fetch was not called for this user because it was skipped

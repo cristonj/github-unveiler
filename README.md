@@ -1,8 +1,15 @@
 # GitHub Unveiler
 
-A Chrome extension to replace GitHub usernames with display names in references and links on GitHub pages.
+A Chrome extension to replace GitHub usernames with display names in references and links on GitHub pages, including GitHub Projects views.
 
 Available on the Chrome Web Store: https://chromewebstore.google.com/detail/github-unveiler/nepdghlcapkfgnficpnefibalbhjofaa
+
+## Features
+
+- Replaces usernames with display names across GitHub and GitHub Enterprise
+- Works in GitHub Projects views using avatar-based detection for better compatibility
+- Supports multiple GitHub Enterprise versions with different UI implementations
+- Caches display names for improved performance
 
 ## Usage
 
